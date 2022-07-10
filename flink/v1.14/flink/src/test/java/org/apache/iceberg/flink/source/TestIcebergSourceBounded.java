@@ -41,6 +41,7 @@ import org.apache.iceberg.flink.TableLoader;
 import org.apache.iceberg.flink.TestFixtures;
 import org.apache.iceberg.flink.data.RowDataToRowMapper;
 import org.apache.iceberg.flink.source.assigner.SimpleSplitAssignerFactory;
+import org.apache.iceberg.flink.source.reader.RowDataReaderFunction;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -94,10 +95,11 @@ public class TestIcebergSourceBounded extends TestFlinkScan {
       table = tableLoader.loadTable();
     }
 
-    IcebergSource.Builder<RowData> sourceBuilder = IcebergSource.forRowData()
+    IcebergSource.Builder<RowData> sourceBuilder = IcebergSource.<RowData>builder()
         .tableLoader(tableLoader())
         .assignerFactory(new SimpleSplitAssignerFactory())
-        .flinkConfig(config);
+        .readerFunction(new RowDataReaderFunction(config, table.schema(), projectedSchema,
+            null, false, table.io(), table.encryption()));
     if (projectedSchema != null) {
       sourceBuilder.project(projectedSchema);
     }

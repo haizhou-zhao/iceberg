@@ -50,6 +50,7 @@ import org.apache.iceberg.flink.SimpleDataUtil;
 import org.apache.iceberg.flink.TestFixtures;
 import org.apache.iceberg.flink.sink.FlinkSink;
 import org.apache.iceberg.flink.source.assigner.SimpleSplitAssignerFactory;
+import org.apache.iceberg.flink.source.reader.RowDataReaderFunction;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -83,12 +84,14 @@ public class TestIcebergSourceFailover {
       TestFixtures.DATABASE, TestFixtures.SINK_TABLE, schema());
 
   protected IcebergSource.Builder<RowData> sourceBuilder() {
+    Table sourceTable = sourceTableResource.table();
     Configuration config = new Configuration();
     config.setInteger(FlinkConfigOptions.SOURCE_READER_FETCH_BATCH_RECORD_COUNT, 128);
-    return IcebergSource.forRowData()
+    return IcebergSource.<RowData>builder()
         .tableLoader(sourceTableResource.tableLoader())
         .assignerFactory(new SimpleSplitAssignerFactory())
-        .flinkConfig(config);
+        .readerFunction(new RowDataReaderFunction(config, sourceTable.schema(), null,
+            null, false, sourceTable.io(), sourceTable.encryption()));
   }
 
   protected Schema schema() {

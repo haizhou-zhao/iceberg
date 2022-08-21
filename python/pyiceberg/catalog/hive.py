@@ -237,7 +237,7 @@ class HiveCatalog(Catalog):
 
     def __init__(self, name: str, **properties: str):
         super().__init__(name, **properties)
-        self._client = _HiveClient(self.property("uri"))
+        self._client = _HiveClient(properties["uri"])
 
     def _convert_hive_into_iceberg(self, table: HiveTable, io: FileIO) -> Table:
         properties: Dict[str, str] = table.parameters
@@ -320,7 +320,7 @@ class HiveCatalog(Catalog):
             if partition_spec.fields
             else DEFAULT_LAST_PARTITION_ID,
         )
-        io = load_file_io({**self.properties, **properties})
+        io = load_file_io({**self.properties, **properties}, location=location)
         self._write_metadata(metadata, io, metadata_location)
 
         tbl = HiveTable(

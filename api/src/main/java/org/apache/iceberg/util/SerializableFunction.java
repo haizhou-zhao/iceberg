@@ -16,19 +16,15 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.iceberg.exceptions;
+package org.apache.iceberg.util;
 
-import com.google.errorprone.annotations.FormatMethod;
+import java.io.Serializable;
+import java.util.function.Function;
 
-/** Exception thrown on HTTP 5XX Server Error. */
-public class ServiceFailureException extends RESTException {
-  @FormatMethod
-  public ServiceFailureException(String message, Object... args) {
-    super(message, args);
-  }
-
-  @FormatMethod
-  public ServiceFailureException(Throwable cause, String message, Object... args) {
-    super(cause, message, args);
-  }
-}
+/**
+ * A concrete transform function that applies a transform to values of a certain type.
+ *
+ * @param <S> Java class of source values
+ * @param <T> Java class of transformed values
+ */
+public interface SerializableFunction<S, T> extends Function<S, T>, Serializable {}

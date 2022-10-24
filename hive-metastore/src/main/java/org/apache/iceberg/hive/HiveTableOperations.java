@@ -23,6 +23,7 @@ import static org.apache.iceberg.TableProperties.GC_ENABLED;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Collections;
@@ -50,10 +51,12 @@ import org.apache.hadoop.hive.metastore.api.LockResponse;
 import org.apache.hadoop.hive.metastore.api.LockState;
 import org.apache.hadoop.hive.metastore.api.LockType;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
+import org.apache.hadoop.hive.metastore.api.PrincipalType;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.hive_metastoreConstants;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.ClientPool;
 import org.apache.iceberg.PartitionSpecParser;
@@ -422,11 +425,22 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
     Preconditions.checkNotNull(metadata, "'metadata' parameter can't be null");
     final long currentTimeMillis = System.currentTimeMillis();
 
+    String defaultUser;
+    // default ownership is determined from Hadoop.UGI.currentUser
+    // and the owner type is default to individual user
+    try {
+      // getShortUserName will remove the realm part of the whole username
+      defaultUser = UserGroupInformation.getCurrentUser().getShortUserName();
+    } catch (IOException e) {
+      LOG.error("Unable to determine the current UGI user", e);
+      throw new RuntimeException(e);
+    }
+
     Table newTable =
         new Table(
             tableName,
             database,
-            metadata.property(TableProperties.HMS_TABLE_OWNER, System.getProperty("user.name")),
+            metadata.property(TableProperties.HMS_TABLE_OWNER, defaultUser),
             (int) currentTimeMillis / 1000,
             (int) currentTimeMillis / 1000,
             Integer.MAX_VALUE,
@@ -436,6 +450,18 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
             null,
             null,
             TableType.EXTERNAL_TABLE.toString());
+
+    // hive2 does not support setting table ownership type, therefore we leave it as
+    // a table property. Once upgraded to hive3, then we can simply set
+    // newTable.setOwnerType(PrincipalType.valueOf(metadata.get(HMS_TABLE_OWNER_TYPE)))
+    String ownerType = metadata.property(TableProperties.HMS_TABLE_OWNER_TYPE, null);
+    if (ownerType != null && ownerType.equalsIgnoreCase(PrincipalType.GROUP.name())) {
+      newTable
+          .getParameters()
+          .put(TableProperties.HMS_TABLE_OWNER_TYPE, PrincipalType.GROUP.name());
+    } else { // default: individual ownership
+      newTable.getParameters().put(TableProperties.HMS_TABLE_OWNER_TYPE, PrincipalType.USER.name());
+    }
 
     newTable
         .getParameters()

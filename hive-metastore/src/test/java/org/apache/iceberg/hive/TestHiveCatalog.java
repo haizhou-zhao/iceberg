@@ -38,6 +38,7 @@ import java.util.UUID;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.Database;
+import org.apache.hadoop.hive.metastore.api.PrincipalType;
 import org.apache.iceberg.AssertHelpers;
 import org.apache.iceberg.CachingCatalog;
 import org.apache.iceberg.CatalogProperties;
@@ -261,7 +262,11 @@ public class TestHiveCatalog extends HiveMetastoreTest {
     String location = temp.newFolder("tbl").toString();
     String owner = "some_owner";
     ImmutableMap<String, String> properties =
-        ImmutableMap.of(TableProperties.HMS_TABLE_OWNER, owner);
+        ImmutableMap.of(
+            TableProperties.HMS_TABLE_OWNER,
+            owner,
+            TableProperties.HMS_TABLE_OWNER_TYPE,
+            PrincipalType.USER.name());
 
     try {
       Table table = catalog.createTable(tableIdent, schema, spec, location, properties);
@@ -270,8 +275,33 @@ public class TestHiveCatalog extends HiveMetastoreTest {
       Assert.assertEquals(owner, hmsTable.getOwner());
       Map<String, String> hmsTableParams = hmsTable.getParameters();
       Assert.assertFalse(hmsTableParams.containsKey(TableProperties.HMS_TABLE_OWNER));
+      Assert.assertEquals(
+          PrincipalType.USER.name(), hmsTableParams.get(TableProperties.HMS_TABLE_OWNER_TYPE));
     } finally {
       catalog.dropTable(tableIdent);
+    }
+
+    TableIdentifier tableIdent2 = TableIdentifier.of(DB_NAME, "tbl_group_owned");
+    String location2 = temp.newFolder("tbl_group_owned").toString();
+    String owner2 = "some_group_owner";
+    ImmutableMap<String, String> properties2 =
+        ImmutableMap.of(
+            TableProperties.HMS_TABLE_OWNER,
+            owner2,
+            TableProperties.HMS_TABLE_OWNER_TYPE,
+            PrincipalType.GROUP.name());
+
+    try {
+      Table table2 = catalog.createTable(tableIdent2, schema, spec, location2, properties2);
+      org.apache.hadoop.hive.metastore.api.Table hmsTable =
+          metastoreClient.getTable(DB_NAME, "tbl_group_owned");
+      Assert.assertEquals(owner2, hmsTable.getOwner());
+      Map<String, String> hmsTableParams = hmsTable.getParameters();
+      Assert.assertFalse(hmsTableParams.containsKey(TableProperties.HMS_TABLE_OWNER));
+      Assert.assertEquals(
+          PrincipalType.GROUP.name(), hmsTableParams.get(TableProperties.HMS_TABLE_OWNER_TYPE));
+    } finally {
+      catalog.dropTable(tableIdent2);
     }
   }
 
@@ -356,6 +386,36 @@ public class TestHiveCatalog extends HiveMetastoreTest {
     Database database2 = metastoreClient.getDatabase(namespace2.toString());
     Assert.assertEquals(
         "There no same location for db and namespace", database2.getLocationUri(), hiveLocalDir);
+  }
+
+  @Test
+  public void testCreateNamespaceWithOwnership() throws Exception {
+    Namespace namespace1 = Namespace.of("userOwnership");
+    Map<String, String> prop1 =
+        ImmutableMap.of(
+            TableProperties.HMS_DB_OWNER,
+            "apache",
+            TableProperties.HMS_DB_OWNER_TYPE,
+            PrincipalType.USER.name());
+    catalog.createNamespace(namespace1, prop1);
+    Database database1 = metastoreClient.getDatabase(namespace1.toString());
+
+    Assert.assertEquals("apache", database1.getOwnerName());
+    Assert.assertEquals(PrincipalType.USER, database1.getOwnerType());
+
+    Map<String, String> prop2 =
+        ImmutableMap.of(
+            TableProperties.HMS_DB_OWNER,
+            "iceberg",
+            TableProperties.HMS_DB_OWNER_TYPE,
+            PrincipalType.GROUP.name());
+    Namespace namespace2 = Namespace.of("groupOwnership");
+
+    catalog.createNamespace(namespace2, prop2);
+    Database database2 = metastoreClient.getDatabase(namespace2.toString());
+
+    Assert.assertEquals("iceberg", database2.getOwnerName());
+    Assert.assertEquals(PrincipalType.GROUP, database2.getOwnerType());
   }
 
   @Test

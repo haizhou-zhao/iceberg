@@ -30,8 +30,10 @@ import org.apache.hadoop.hive.metastore.api.AlreadyExistsException;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.InvalidOperationException;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
+import org.apache.hadoop.hive.metastore.api.PrincipalType;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.UnknownDBException;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.CatalogProperties;
@@ -39,6 +41,7 @@ import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.ClientPool;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -532,6 +535,16 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
 
     database.setName(namespace.level(0));
     database.setLocationUri(databaseLocation(namespace.level(0)));
+    // default ownership is determined from Hadoop.UGI.currentUser
+    // and the owner type is default to individual user
+    try {
+      // getShortUserName will remove the realm part of the whole username
+      database.setOwnerName(UserGroupInformation.getCurrentUser().getShortUserName());
+      database.setOwnerType(PrincipalType.USER);
+    } catch (IOException e) {
+      LOG.error("Unable to determine the current UGI user", e);
+      throw new RuntimeException(e);
+    }
 
     meta.forEach(
         (key, value) -> {
@@ -539,6 +552,10 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
             database.setDescription(value);
           } else if (key.equals("location")) {
             database.setLocationUri(value);
+          } else if (key.equals(TableProperties.HMS_DB_OWNER)) {
+            database.setOwnerName(value);
+          } else if (key.equals(TableProperties.HMS_DB_OWNER_TYPE)) {
+            database.setOwnerType(PrincipalType.valueOf(value));
           } else {
             if (value != null) {
               parameter.put(key, value);

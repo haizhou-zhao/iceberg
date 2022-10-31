@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -258,50 +259,42 @@ public class TestHiveCatalog extends HiveMetastoreTest {
   public void testCreateTableWithOwner() throws Exception {
     Schema schema = getTestSchema();
     PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("data", 16).build();
-    TableIdentifier tableIdent = TableIdentifier.of(DB_NAME, "tbl");
-    String location = temp.newFolder("tbl").toString();
     String owner = "some_owner";
-    ImmutableMap<String, String> properties =
-        ImmutableMap.of(
-            TableProperties.HMS_TABLE_OWNER,
-            owner,
-            TableProperties.HMS_TABLE_OWNER_TYPE,
-            PrincipalType.USER.name());
+    Map<String, String> prop = ImmutableMap.of(TableProperties.HMS_TABLE_OWNER, owner);
 
+    createTableAndVerifyOwnership(DB_NAME, "tbl", schema, spec, prop, owner);
+
+    prop = ImmutableMap.of();
+
+    // a table without an owner explicitly specified should have a default owner
+    createTableAndVerifyOwnership(
+        DB_NAME,
+        "no_explicit_owner_specified_tbl",
+        schema,
+        spec,
+        prop,
+        System.getProperty("user.name"));
+  }
+
+  private void createTableAndVerifyOwnership(
+      String dbName,
+      String tblName,
+      Schema schema,
+      PartitionSpec spec,
+      Map<String, String> prop,
+      String owner)
+      throws TException, IOException {
+    TableIdentifier id = TableIdentifier.of(dbName, tblName);
+    String location = temp.newFolder(tblName).toString();
     try {
-      Table table = catalog.createTable(tableIdent, schema, spec, location, properties);
+      catalog.createTable(id, schema, spec, location, prop);
       org.apache.hadoop.hive.metastore.api.Table hmsTable =
-          metastoreClient.getTable(DB_NAME, "tbl");
+          metastoreClient.getTable(dbName, tblName);
       Assert.assertEquals(owner, hmsTable.getOwner());
       Map<String, String> hmsTableParams = hmsTable.getParameters();
       Assert.assertFalse(hmsTableParams.containsKey(TableProperties.HMS_TABLE_OWNER));
-      Assert.assertEquals(
-          PrincipalType.USER.name(), hmsTableParams.get(TableProperties.HMS_TABLE_OWNER_TYPE));
     } finally {
-      catalog.dropTable(tableIdent);
-    }
-
-    TableIdentifier tableIdent2 = TableIdentifier.of(DB_NAME, "tbl_group_owned");
-    String location2 = temp.newFolder("tbl_group_owned").toString();
-    String owner2 = "some_group_owner";
-    ImmutableMap<String, String> properties2 =
-        ImmutableMap.of(
-            TableProperties.HMS_TABLE_OWNER,
-            owner2,
-            TableProperties.HMS_TABLE_OWNER_TYPE,
-            PrincipalType.GROUP.name());
-
-    try {
-      Table table2 = catalog.createTable(tableIdent2, schema, spec, location2, properties2);
-      org.apache.hadoop.hive.metastore.api.Table hmsTable =
-          metastoreClient.getTable(DB_NAME, "tbl_group_owned");
-      Assert.assertEquals(owner2, hmsTable.getOwner());
-      Map<String, String> hmsTableParams = hmsTable.getParameters();
-      Assert.assertFalse(hmsTableParams.containsKey(TableProperties.HMS_TABLE_OWNER));
-      Assert.assertEquals(
-          PrincipalType.GROUP.name(), hmsTableParams.get(TableProperties.HMS_TABLE_OWNER_TYPE));
-    } finally {
-      catalog.dropTable(tableIdent2);
+      catalog.dropTable(id);
     }
   }
 
@@ -390,32 +383,59 @@ public class TestHiveCatalog extends HiveMetastoreTest {
 
   @Test
   public void testCreateNamespaceWithOwnership() throws Exception {
-    Namespace namespace1 = Namespace.of("userOwnership");
-    Map<String, String> prop1 =
+    Map<String, String> prop =
         ImmutableMap.of(
             TableProperties.HMS_DB_OWNER,
             "apache",
             TableProperties.HMS_DB_OWNER_TYPE,
             PrincipalType.USER.name());
-    catalog.createNamespace(namespace1, prop1);
-    Database database1 = metastoreClient.getDatabase(namespace1.toString());
 
-    Assert.assertEquals("apache", database1.getOwnerName());
-    Assert.assertEquals(PrincipalType.USER, database1.getOwnerType());
+    String expectedOwner = "apache";
+    PrincipalType expectedOwnerType = PrincipalType.USER;
 
-    Map<String, String> prop2 =
+    createNamespaceAndVerifyOwnership("userOwnership", prop, expectedOwner, expectedOwnerType);
+
+    prop =
         ImmutableMap.of(
             TableProperties.HMS_DB_OWNER,
             "iceberg",
             TableProperties.HMS_DB_OWNER_TYPE,
             PrincipalType.GROUP.name());
-    Namespace namespace2 = Namespace.of("groupOwnership");
+    expectedOwner = "iceberg";
+    expectedOwnerType = PrincipalType.GROUP;
 
-    catalog.createNamespace(namespace2, prop2);
-    Database database2 = metastoreClient.getDatabase(namespace2.toString());
+    createNamespaceAndVerifyOwnership("groupOwnership", prop, expectedOwner, expectedOwnerType);
 
-    Assert.assertEquals("iceberg", database2.getOwnerName());
-    Assert.assertEquals(PrincipalType.GROUP, database2.getOwnerType());
+    prop = ImmutableMap.of(TableProperties.HMS_DB_OWNER, "someone");
+    expectedOwner = "someone";
+    expectedOwnerType = PrincipalType.USER; // default is user if not specified
+
+    createNamespaceAndVerifyOwnership("ownedBySomeone", prop, expectedOwner, expectedOwnerType);
+
+    prop = ImmutableMap.of();
+    expectedOwner = System.getProperty("user.name"); // default value if not specified
+    expectedOwnerType = PrincipalType.USER; // default is user if not specified
+
+    createNamespaceAndVerifyOwnership("ownedByDefaultUser", prop, expectedOwner, expectedOwnerType);
+
+    prop = ImmutableMap.of(TableProperties.HMS_DB_OWNER_TYPE, PrincipalType.GROUP.name());
+    expectedOwner = System.getProperty("user.name"); // default value if not specified
+    expectedOwnerType = PrincipalType.USER; // "group" is set in prop, but owner is not set, default
+
+    createNamespaceAndVerifyOwnership(
+        "doNotSetOwnerTypeAlong", prop, expectedOwner, expectedOwnerType);
+  }
+
+  private void createNamespaceAndVerifyOwnership(
+      String name, Map<String, String> prop, String expectedOwner, PrincipalType expectedOwnerType)
+      throws TException {
+    Namespace namespace = Namespace.of(name);
+
+    catalog.createNamespace(namespace, prop);
+    Database db = metastoreClient.getDatabase(namespace.toString());
+
+    Assert.assertEquals(expectedOwner, db.getOwnerName());
+    Assert.assertEquals(expectedOwnerType, db.getOwnerType());
   }
 
   @Test

@@ -18,7 +18,6 @@
  */
 package org.apache.iceberg.hive;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -34,7 +33,6 @@ import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.PrincipalType;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.UnknownDBException;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.CatalogProperties;
@@ -536,16 +534,6 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
 
     database.setName(namespace.level(0));
     database.setLocationUri(databaseLocation(namespace.level(0)));
-    // default ownership is determined from Hadoop.UGI.currentUser
-    // and the owner type is default to individual user
-    try {
-      // getShortUserName will remove the realm part of the whole username
-      database.setOwnerName(UserGroupInformation.getCurrentUser().getShortUserName());
-      database.setOwnerType(PrincipalType.USER);
-    } catch (IOException e) {
-      LOG.error("Unable to determine the current UGI user", e);
-      throw new RuntimeException(e);
-    }
 
     meta.forEach(
         (key, value) -> {
@@ -563,6 +551,16 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
             }
           }
         });
+
+    // default ownership on db level kept uniform with table level, see  HiveTableOperations#
+    // newHmsTable; default ownership type is individual user - we do not allow Iceberg API users
+    // to set owner type to things other than individual user should they decide to leave owner
+    // as empty
+    if (database.getOwnerName() == null) {
+      database.setOwnerName(System.getProperty("user.name"));
+      database.setOwnerType(PrincipalType.USER);
+    }
+
     database.setParameters(parameter);
 
     return database;

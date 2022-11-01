@@ -543,7 +543,7 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
             database.setLocationUri(value);
           } else if (key.equals(TableProperties.HMS_DB_OWNER)) {
             database.setOwnerName(value);
-          } else if (key.equals(TableProperties.HMS_DB_OWNER_TYPE)) {
+          } else if (key.equals(TableProperties.HMS_DB_OWNER_TYPE) && value != null) {
             database.setOwnerType(PrincipalType.valueOf(value));
           } else {
             if (value != null) {
@@ -552,10 +552,6 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
           }
         });
 
-    // default ownership on db level kept uniform with table level, see  HiveTableOperations#
-    // newHmsTable; default ownership type is individual user - we do not allow Iceberg API users
-    // to set owner type to things other than individual user should they decide to leave owner
-    // as empty
     if (database.getOwnerName() == null) {
       database.setOwnerName(System.getProperty("user.name"));
       database.setOwnerType(PrincipalType.USER);

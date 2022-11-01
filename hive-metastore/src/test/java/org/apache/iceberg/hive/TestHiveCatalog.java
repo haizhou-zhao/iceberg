@@ -259,42 +259,21 @@ public class TestHiveCatalog extends HiveMetastoreTest {
   public void testCreateTableWithOwner() throws Exception {
     Schema schema = getTestSchema();
     PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("data", 16).build();
+    TableIdentifier tableIdent = TableIdentifier.of(DB_NAME, "tbl");
+    String location = temp.newFolder("tbl").toString();
     String owner = "some_owner";
-    Map<String, String> prop = ImmutableMap.of(TableProperties.HMS_TABLE_OWNER, owner);
+    ImmutableMap<String, String> properties =
+            ImmutableMap.of(TableProperties.HMS_TABLE_OWNER, owner);
 
-    createTableAndVerifyOwnership(DB_NAME, "tbl", schema, spec, prop, owner);
-
-    prop = ImmutableMap.of();
-
-    // a table without an owner explicitly specified should have a default owner
-    createTableAndVerifyOwnership(
-        DB_NAME,
-        "no_explicit_owner_specified_tbl",
-        schema,
-        spec,
-        prop,
-        System.getProperty("user.name"));
-  }
-
-  private void createTableAndVerifyOwnership(
-      String dbName,
-      String tblName,
-      Schema schema,
-      PartitionSpec spec,
-      Map<String, String> prop,
-      String owner)
-      throws TException, IOException {
-    TableIdentifier id = TableIdentifier.of(dbName, tblName);
-    String location = temp.newFolder(tblName).toString();
     try {
-      catalog.createTable(id, schema, spec, location, prop);
+      Table table = catalog.createTable(tableIdent, schema, spec, location, properties);
       org.apache.hadoop.hive.metastore.api.Table hmsTable =
-          metastoreClient.getTable(dbName, tblName);
+              metastoreClient.getTable(DB_NAME, "tbl");
       Assert.assertEquals(owner, hmsTable.getOwner());
       Map<String, String> hmsTableParams = hmsTable.getParameters();
       Assert.assertFalse(hmsTableParams.containsKey(TableProperties.HMS_TABLE_OWNER));
     } finally {
-      catalog.dropTable(id);
+      catalog.dropTable(tableIdent);
     }
   }
 
@@ -507,6 +486,40 @@ public class TestHiveCatalog extends HiveMetastoreTest {
   }
 
   @Test
+  public void testSetNamespaceOwnership() throws TException {
+    Map<String, String> prop =
+        ImmutableMap.of(TableProperties.HMS_DB_OWNER, "some_individual_owner");
+    String expectedOwner = "some_individual_owner";
+    PrincipalType expectedType = PrincipalType.USER;
+
+    setNamespaceOwnershipAndVerify("set_individual_ownership", prop, expectedOwner, expectedType);
+
+    prop =
+        ImmutableMap.of(
+            TableProperties.HMS_DB_OWNER,
+            "some_group_owner",
+            TableProperties.HMS_DB_OWNER_TYPE,
+            PrincipalType.GROUP.name());
+    expectedOwner = "some_group_owner";
+    expectedType = PrincipalType.GROUP;
+
+    setNamespaceOwnershipAndVerify("set_group_ownership", prop, expectedOwner, expectedType);
+  }
+
+  private void setNamespaceOwnershipAndVerify(
+      String name, Map<String, String> prop, String expectedOwner, PrincipalType expectedType)
+      throws TException {
+    Namespace namespace = Namespace.of(name);
+    catalog.createNamespace(namespace);
+    catalog.setProperties(namespace, prop);
+    Database database = metastoreClient.getDatabase(namespace.level(0));
+
+    // Once ownership is removed, expect the ownership and type to fall back to the default value
+    Assert.assertEquals(expectedOwner, database.getOwnerName());
+    Assert.assertEquals(expectedType, database.getOwnerType());
+  }
+
+  @Test
   public void testRemoveNamespaceProperties() throws TException {
     Namespace namespace = Namespace.of("dbname_remove");
 
@@ -526,6 +539,36 @@ public class TestHiveCatalog extends HiveMetastoreTest {
           catalog.removeProperties(
               Namespace.of("db2", "db2", "ns2"), ImmutableSet.of("comment", "owner"));
         });
+  }
+
+  @Test
+  public void testRemoveNamespaceOwnership() throws TException {
+    Map<String, String> prop = ImmutableMap.of(TableProperties.HMS_DB_OWNER, "some_owner");
+    removeNamespaceOwnershipAndVerify("remove_individual_ownership", prop);
+    prop =
+        ImmutableMap.of(
+            TableProperties.HMS_DB_OWNER,
+            "some_owner",
+            TableProperties.HMS_DB_OWNER_TYPE,
+            PrincipalType.GROUP.name());
+    removeNamespaceOwnershipAndVerify("remove_group_ownership", prop);
+  }
+
+  private void removeNamespaceOwnershipAndVerify(String name, Map<String, String> prop)
+      throws TException {
+    Namespace namespace = Namespace.of(name);
+
+    catalog.createNamespace(namespace, prop);
+
+    catalog.removeProperties(
+        namespace,
+        ImmutableSet.of(TableProperties.HMS_DB_OWNER, TableProperties.HMS_DB_OWNER_TYPE));
+
+    Database database = metastoreClient.getDatabase(namespace.level(0));
+
+    // Once ownership is removed, expect the ownership and type to fall back to the default value
+    Assert.assertEquals(System.getProperty("user.name"), database.getOwnerName());
+    Assert.assertEquals(PrincipalType.USER, database.getOwnerType());
   }
 
   @Test

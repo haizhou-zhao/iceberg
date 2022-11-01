@@ -263,12 +263,12 @@ public class TestHiveCatalog extends HiveMetastoreTest {
     String location = temp.newFolder("tbl").toString();
     String owner = "some_owner";
     ImmutableMap<String, String> properties =
-            ImmutableMap.of(TableProperties.HMS_TABLE_OWNER, owner);
+        ImmutableMap.of(TableProperties.HMS_TABLE_OWNER, owner);
 
     try {
       Table table = catalog.createTable(tableIdent, schema, spec, location, properties);
       org.apache.hadoop.hive.metastore.api.Table hmsTable =
-              metastoreClient.getTable(DB_NAME, "tbl");
+          metastoreClient.getTable(DB_NAME, "tbl");
       Assert.assertEquals(owner, hmsTable.getOwner());
       Map<String, String> hmsTableParams = hmsTable.getParameters();
       Assert.assertFalse(hmsTableParams.containsKey(TableProperties.HMS_TABLE_OWNER));

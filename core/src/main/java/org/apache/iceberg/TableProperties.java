@@ -360,7 +360,7 @@ public class TableProperties {
   public static final String UPSERT_ENABLED = "write.upsert.enabled";
   public static final boolean UPSERT_ENABLED_DEFAULT = false;
 
-  public static final String HMS_TABLE_OWNER = "hms_table_owner";
-  public static final String HMS_DB_OWNER = "hms_db_owner";
-  public static final String HMS_DB_OWNER_TYPE = "hms_db_owner_type";
+  public static final String HMS_TABLE_OWNER = "hive.metastore.table.owner";
+  public static final String HMS_DB_OWNER = "hive.metastore.database.owner";
+  public static final String HMS_DB_OWNER_TYPE = "hive.metastore.database.owner-type";
 }

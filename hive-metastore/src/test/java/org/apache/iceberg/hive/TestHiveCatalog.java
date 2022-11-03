@@ -35,6 +35,8 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.Database;
@@ -396,12 +398,31 @@ public class TestHiveCatalog extends HiveMetastoreTest {
 
     createNamespaceAndVerifyOwnership("ownedByDefaultUser", prop, expectedOwner, expectedOwnerType);
 
-    prop = ImmutableMap.of(TableProperties.HMS_DB_OWNER_TYPE, PrincipalType.GROUP.name());
-    expectedOwner = System.getProperty("user.name"); // default value if not specified
-    expectedOwnerType = PrincipalType.USER; // "group" is set in prop, but owner is not set, default
+    AssertHelpers.assertThrows(
+        "Setting "
+            + TableProperties.HMS_DB_OWNER_TYPE
+            + " without setting "
+            + TableProperties.HMS_DB_OWNER
+            + "is not allowed",
+        IllegalArgumentException.class,
+        () ->
+            catalog.createNamespace(
+                Namespace.of("creatingWithOwnerTypeAlone"),
+                ImmutableMap.of(TableProperties.HMS_DB_OWNER_TYPE, PrincipalType.GROUP.name())));
 
-    createNamespaceAndVerifyOwnership(
-        "doNotSetOwnerTypeAlong", prop, expectedOwner, expectedOwnerType);
+    AssertHelpers.assertThrows(
+        TableProperties.HMS_DB_OWNER_TYPE
+            + " has an invalid value of: "
+            + meta.get(TableProperties.HMS_DB_OWNER_TYPE)
+            + ". Acceptable values are: "
+            + Stream.of(PrincipalType.values()).map(Enum::name).collect(Collectors.joining(", ")),
+        IllegalArgumentException.class,
+        () ->
+            catalog.createNamespace(
+                Namespace.of("creatingWithInvalidOwnerType"),
+                ImmutableMap.of(
+                    TableProperties.HMS_DB_OWNER, "iceberg",
+                    TableProperties.HMS_DB_OWNER_TYPE, "invalidOwnerType")));
   }
 
   private void createNamespaceAndVerifyOwnership(
@@ -503,6 +524,23 @@ public class TestHiveCatalog extends HiveMetastoreTest {
     expectedType = PrincipalType.GROUP;
 
     setNamespaceOwnershipAndVerify("set_group_ownership", prop, expectedOwner, expectedType);
+
+    AssertHelpers.assertThrows(
+        TableProperties.HMS_DB_OWNER_TYPE
+            + " has an invalid value of: "
+            + meta.get(TableProperties.HMS_DB_OWNER_TYPE)
+            + ". Acceptable values are: "
+            + Stream.of(PrincipalType.values()).map(Enum::name).collect(Collectors.joining(", ")),
+        IllegalArgumentException.class,
+        () -> {
+          Namespace namespace = Namespace.of("setInvalidOwnerType");
+          catalog.createNamespace(namespace);
+          catalog.setProperties(
+              namespace,
+              ImmutableMap.of(
+                  TableProperties.HMS_DB_OWNER, "iceberg",
+                  TableProperties.HMS_DB_OWNER_TYPE, "invalidOwnerType"));
+        });
   }
 
   private void setNamespaceOwnershipAndVerify(
@@ -513,7 +551,6 @@ public class TestHiveCatalog extends HiveMetastoreTest {
     catalog.setProperties(namespace, prop);
     Database database = metastoreClient.getDatabase(namespace.level(0));
 
-    // Once ownership is removed, expect the ownership and type to fall back to the default value
     Assert.assertEquals(expectedOwner, database.getOwnerName());
     Assert.assertEquals(expectedType, database.getOwnerType());
   }
@@ -544,6 +581,7 @@ public class TestHiveCatalog extends HiveMetastoreTest {
   public void testRemoveNamespaceOwnership() throws TException {
     Map<String, String> prop = ImmutableMap.of(TableProperties.HMS_DB_OWNER, "some_owner");
     removeNamespaceOwnershipAndVerify("remove_individual_ownership", prop);
+
     prop =
         ImmutableMap.of(
             TableProperties.HMS_DB_OWNER,
@@ -551,6 +589,29 @@ public class TestHiveCatalog extends HiveMetastoreTest {
             TableProperties.HMS_DB_OWNER_TYPE,
             PrincipalType.GROUP.name());
     removeNamespaceOwnershipAndVerify("remove_group_ownership", prop);
+
+    prop = ImmutableMap.of();
+
+    removeNamespaceOwnershipAndVerify("remove_ownership_noop", prop);
+
+    AssertHelpers.assertThrows(
+        "Setting "
+            + TableProperties.HMS_DB_OWNER_TYPE
+            + " without setting "
+            + TableProperties.HMS_DB_OWNER
+            + "is not allowed",
+        IllegalArgumentException.class,
+        () -> {
+          Namespace namespace = Namespace.of("removingOwnerWithoutRemovingOwnerType");
+          catalog.createNamespace(
+              namespace,
+              ImmutableMap.of(
+                  TableProperties.HMS_DB_OWNER,
+                  "some_owner",
+                  TableProperties.HMS_DB_OWNER_TYPE,
+                  PrincipalType.GROUP.name()));
+          catalog.removeProperties(namespace, ImmutableSet.of(TableProperties.HMS_DB_OWNER));
+        });
   }
 
   private void removeNamespaceOwnershipAndVerify(String name, Map<String, String> prop)

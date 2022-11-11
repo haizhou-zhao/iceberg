@@ -368,6 +368,7 @@ class RestCatalog(Catalog):
             identifier=(self.name,) + self.identifier_to_tuple(identifier),
             metadata_location=table_response.metadata_location,
             metadata=table_response.metadata,
+            io=self._load_file_io({**table_response.metadata.properties, **table_response.config}),
         )
 
     def list_tables(self, namespace: Union[str, Identifier]) -> List[Identifier]:
@@ -397,6 +398,7 @@ class RestCatalog(Catalog):
             identifier=(self.name,) + identifier_tuple if self.name else identifier_tuple,
             metadata_location=table_response.metadata_location,
             metadata=table_response.metadata,
+            io=self._load_file_io({**table_response.metadata.properties, **table_response.config}),
         )
 
     def drop_table(self, identifier: Union[str, Identifier], purge_requested: bool = False) -> None:

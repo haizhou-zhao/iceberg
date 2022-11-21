@@ -14,13 +14,18 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-
+from abc import abstractmethod
+from decimal import Decimal
 from typing import (
     Any,
     Dict,
+    Protocol,
     Tuple,
+    TypeVar,
     Union,
+    runtime_checkable,
 )
+from uuid import UUID
 
 
 class FrozenDict(Dict[Any, Any]):
@@ -36,3 +41,19 @@ EMPTY_DICT = FrozenDict()
 Identifier = Tuple[str, ...]
 Properties = Dict[str, str]
 RecursiveDict = Dict[str, Union[str, "RecursiveDict"]]
+
+# Represents the literal value
+L = TypeVar("L", str, bool, int, float, bytes, UUID, Decimal, covariant=True)
+
+
+@runtime_checkable
+class StructProtocol(Protocol):  # pragma: no cover
+    """A generic protocol used by accessors to get and set at positions of an object"""
+
+    @abstractmethod
+    def get(self, pos: int) -> Any:
+        ...
+
+    @abstractmethod
+    def set(self, pos: int, value: Any) -> None:
+        ...

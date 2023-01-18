@@ -23,6 +23,7 @@ import static org.apache.iceberg.TableProperties.GC_ENABLED;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Collections;
@@ -57,6 +58,7 @@ import org.apache.hadoop.hive.metastore.api.ShowLocksResponseElement;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.hive_metastoreConstants;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.ClientPool;
 import org.apache.iceberg.PartitionSpecParser;
@@ -493,6 +495,22 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
 
     // remove any props from HMS that are no longer present in Iceberg table props
     obsoleteProps.forEach(parameters::remove);
+
+    if (metadata.property(HiveCatalog.HMS_TABLE_OWNER, null) != null) {
+      tbl.setOwner(metadata.property(HiveCatalog.HMS_TABLE_OWNER, null));
+    }
+
+    if (obsoleteProps.contains(HiveCatalog.HMS_TABLE_OWNER)) {
+      try {
+        tbl.setOwner(UserGroupInformation.getCurrentUser().getUserName());
+      } catch (IOException e) {
+        throw new RuntimeException(
+            String.format(
+                "Fail to obtain default (UGI) user when removing owner from table %s.%s",
+                tbl.getDbName(), tbl.getTableName()),
+            e);
+      }
+    }
 
     parameters.put(TABLE_TYPE_PROP, ICEBERG_TABLE_TYPE_VALUE.toUpperCase(Locale.ENGLISH));
     parameters.put(METADATA_LOCATION_PROP, newMetadataLocation);
